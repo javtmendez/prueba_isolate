@@ -2,13 +2,25 @@ import 'dart:async';
 import 'dart:isolate';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:geolocator/geolocator.dart';
 
-void entryPoint(SendPort sendPort)async{
-Timer.periodic(const Duration(seconds: 1), (_){
-    sendPort.send(DateTime.now().toString());
-});
+class IsolateArguments{
+  final SendPort sendPort;
+  final RootIsolateToken rootIsolateToken;
+
+  IsolateArguments(this.sendPort, this.rootIsolateToken);
 }
 
+
+void entryPoint(IsolateArguments arguments)async{
+  BackgroundIsolateBinaryMessenger.ensureInitialized( arguments.rootIsolateToken);
+Timer.periodic(const Duration(seconds: 1), (_) async {
+   Position position = await Geolocator.getCurrentPosition(
+       desiredAccuracy: LocationAccuracy.high);
+     arguments.sendPort.send(position);
+});
+}
 void main() {
   runApp(const MyApp());
 }
@@ -41,14 +53,15 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> {
   
-  String? _resp;
   Isolate? _isolate;
   final ReceivePort _receivePort=ReceivePort();
   late StreamSubscription _subscription;
+  
   void onPressed()async{
     try{
       _isolate?.kill();
-      _isolate=await Isolate.spawn<SendPort>(entryPoint, _receivePort.sendPort);
+      RootIsolateToken rootIsolateToken = RootIsolateToken.instance!;
+      _isolate=await Isolate.spawn<IsolateArguments>(entryPoint, IsolateArguments(_receivePort.sendPort, rootIsolateToken));
     }on IsolateSpawnException catch(e)
     {
       // ignore: avoid_print
@@ -63,6 +76,7 @@ class _MyHomePageState extends State<MyHomePage> {
     print("Mensaje:$message");
    });
   }
+
   @override
   void dispose() {
     _subscription.cancel();
@@ -78,14 +92,13 @@ _isolate?.kill();
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         title: Text(widget.title),
       ),
-      body:  Center(
+      body:  const Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: <Widget>[
-            const Text(
+            Text(
               'You have pushed the button this many times:',
             ),
-            Text('$_resp')
           ],
         ),
       ),
